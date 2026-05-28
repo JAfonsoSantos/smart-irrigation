@@ -221,6 +221,22 @@ def main():
         print("ERROR: SHELLY_AUTH_KEY not set", file=sys.stderr)
         sys.exit(1)
 
+    # Manual pause via dashboard — creates a paused.flag file in the repo
+    if os.path.exists("paused.flag"):
+        msg = "Irrigation PAUSED via dashboard (paused.flag present). Skipping run."
+        print(msg)
+        now = datetime.datetime.now()
+        append_log({
+            "date": now.date().isoformat(),
+            "time": now.strftime("%H:%M"),
+            "decision": "PAUSED",
+            "reason": "paused.flag present (manual pause via dashboard)",
+            "zones_watered": [],
+            "total_duration_min": 0,
+        })
+        slack_notify("⏸️ Rega PAUSADA (manual via dashboard).")
+        return
+
     try:
         weather = fetch_weather()
         plan = decide(weather)
