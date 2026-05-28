@@ -2,11 +2,8 @@ name: Smart Irrigation
 
 on:
   schedule:
-    # 06:30 UTC = 07:30 Europe/Lisbon (Winter) / 07:30 in Summer too (Portugal stays UTC+0/+1)
-    # Actually: 07:00 Lisbon = 06:00 UTC (winter) / 06:00 UTC (summer DST = 07:00 local)
-    # Using 06:00 UTC so it runs around 07:00–08:00 local time
     - cron: "0 6 * * *"
-  workflow_dispatch:   # allow manual runs from GitHub UI
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -14,7 +11,7 @@ permissions:
 jobs:
   irrigate:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 240
     concurrency:
       group: irrigation
       cancel-in-progress: false
@@ -39,6 +36,6 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add irrigation-log.json || true
+          git add irrigation-log.json 2>/dev/null || true
           git diff --cached --quiet || git commit -m "log: $(date -u +%F)"
           git push || true
