@@ -256,13 +256,22 @@ def main():
     print(f"  ch0_timer={plan['ch0_timer']}s  ch1_duration={plan['ch1_duration']}s")
 
     zones_watered = []
+    zones_detail = []
     total_minutes = 0
 
     if plan["decision"] != "SKIP":
         for zone in ZONES:
+            dur_sec = plan["ch0_timer"] if zone["use_timer"] else 900
+            dur_min = round(dur_sec / 60.0, 1)
             ok = run_zone(zone, plan["ch0_timer"])
             zones_watered.append(zone["name"])
-            total_minutes += (plan["ch0_timer"] if zone["use_timer"] else 900) / 60.0
+            zones_detail.append({
+                "name": zone["name"],
+                "channel": zone["channel"],
+                "duration_min": dur_min,
+                "completed": bool(ok),
+            })
+            total_minutes += dur_min
 
     # Final safety check
     print("\n=== Final safety check ===")
@@ -283,6 +292,7 @@ def main():
     entry = {
         "date": now.date().isoformat(),
         "time": now.strftime("%H:%M"),
+        "utc_time": datetime.datetime.utcnow().strftime("%H:%M"),
         "decision": plan["decision"],
         "rain_48h_mm": plan["rain_48h"],
         "forecast_12h_mm": plan["rain_forecast_12h"],
@@ -290,7 +300,7 @@ def main():
         "dry_days": plan["dry_days"],
         "et0_mm": plan["et0"],
         "zones_watered": zones_watered,
-        "duration_per_zone_min": f"{plan['ch0_timer']//60}/{plan['ch1_duration']//60}",
+        "zones": zones_detail,
         "total_duration_min": round(total_minutes, 1),
     }
     append_log(entry)

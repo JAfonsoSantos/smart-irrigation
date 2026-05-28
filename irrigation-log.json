@@ -1,0 +1,23 @@
+[
+  {
+    "date": "2026-05-28",
+    "time": "10:30",
+    "utc_time": "09:30",
+    "decision": "EXTENDED",
+    "reason": "Dry conditions (0mm rain 48h, 7+ dry days, et0=4.21mm). User stopped Zone 4 mid-way via 'stop all' command.",
+    "rain_48h_mm": 0.0,
+    "forecast_12h_mm": 0.0,
+    "forecast_prob_pct": 0,
+    "dry_days": 7,
+    "et0_mm": 4.21,
+    "zones_watered": ["oliveira", "norte", "entrada", "cozinha"],
+    "zones": [
+      {"name": "oliveira", "channel": 0, "duration_min": 22.5, "completed": true},
+      {"name": "norte",    "channel": 1, "duration_min": 15.0, "completed": true},
+      {"name": "entrada",  "channel": 0, "duration_min": 22.5, "completed": true},
+      {"name": "cozinha",  "channel": 1, "duration_min": 2.2,  "completed": false, "note": "stopped early via STOP ALL"}
+    ],
+    "total_duration_min": 62.2,
+    "trigger": "manual (scheduled task pre-GitHub-Actions)"
+  }
+]
