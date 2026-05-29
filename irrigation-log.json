@@ -10,14 +10,84 @@
     "forecast_prob_pct": 0,
     "dry_days": 7,
     "et0_mm": 4.21,
-    "zones_watered": ["oliveira", "norte", "entrada", "cozinha"],
+    "zones_watered": [
+      "oliveira",
+      "norte",
+      "entrada",
+      "cozinha"
+    ],
     "zones": [
-      {"name": "oliveira", "channel": 0, "duration_min": 22.5, "completed": true},
-      {"name": "norte",    "channel": 1, "duration_min": 15.0, "completed": true},
-      {"name": "entrada",  "channel": 0, "duration_min": 22.5, "completed": true},
-      {"name": "cozinha",  "channel": 1, "duration_min": 2.2,  "completed": false, "note": "stopped early via STOP ALL"}
+      {
+        "name": "oliveira",
+        "channel": 0,
+        "duration_min": 22.5,
+        "completed": true
+      },
+      {
+        "name": "norte",
+        "channel": 1,
+        "duration_min": 15.0,
+        "completed": true
+      },
+      {
+        "name": "entrada",
+        "channel": 0,
+        "duration_min": 22.5,
+        "completed": true
+      },
+      {
+        "name": "cozinha",
+        "channel": 1,
+        "duration_min": 2.2,
+        "completed": false,
+        "note": "stopped early via STOP ALL"
+      }
     ],
     "total_duration_min": 62.2,
     "trigger": "manual (scheduled task pre-GitHub-Actions)"
+  },
+  {
+    "date": "2026-05-29",
+    "time": "00:00",
+    "utc_time": "00:00",
+    "decision": "NORMAL",
+    "rain_48h_mm": 0.0,
+    "forecast_12h_mm": 0.0,
+    "forecast_prob_pct": 0,
+    "dry_days": 4,
+    "et0_mm": 3.83,
+    "zones_watered": [
+      "oliveira",
+      "norte",
+      "entrada",
+      "cozinha"
+    ],
+    "zones": [
+      {
+        "name": "oliveira",
+        "channel": 0,
+        "duration_min": 15.0,
+        "completed": false
+      },
+      {
+        "name": "norte",
+        "channel": 1,
+        "duration_min": 15.0,
+        "completed": false
+      },
+      {
+        "name": "entrada",
+        "channel": 0,
+        "duration_min": 15.0,
+        "completed": false
+      },
+      {
+        "name": "cozinha",
+        "channel": 1,
+        "duration_min": 15.0,
+        "completed": false
+      }
+    ],
+    "total_duration_min": 60.0
   }
 ]
