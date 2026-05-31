@@ -265,5 +265,49 @@
       }
     ],
     "total_duration_min": 60.0
+  },
+  {
+    "date": "2026-05-31",
+    "time": "06:32",
+    "utc_time": "06:32",
+    "decision": "EXTENDED",
+    "rain_48h_mm": 0.0,
+    "forecast_12h_mm": 0.0,
+    "forecast_prob_pct": 0,
+    "dry_days": 6,
+    "et0_mm": 4.57,
+    "zones_watered": [
+      "oliveira",
+      "norte",
+      "entrada",
+      "cozinha"
+    ],
+    "zones": [
+      {
+        "name": "oliveira",
+        "channel": 0,
+        "duration_min": 22.5,
+        "completed": true
+      },
+      {
+        "name": "norte",
+        "channel": 1,
+        "duration_min": 15.0,
+        "completed": true
+      },
+      {
+        "name": "entrada",
+        "channel": 0,
+        "duration_min": 22.5,
+        "completed": true
+      },
+      {
+        "name": "cozinha",
+        "channel": 1,
+        "duration_min": 15.0,
+        "completed": true
+      }
+    ],
+    "total_duration_min": 75.0
   }
 ]
