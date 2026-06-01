@@ -18,8 +18,13 @@ CONFIG_URL = os.environ.get("CONFIG_URL",
     "https://raw.githubusercontent.com/jafonsosantos/irrigation-dashboard/main/config.json")
 
 BRISA_ZONES = [
-    {"name": "oliveira", "label": "Oliveira", "device": "4c7525341b1f", "channel": 0},
-    {"name": "cozinha",  "label": "Cozinha",  "device": "3494546bc56d", "channel": 0},
+    {"name": "corredor",    "label": "Corredor",      "device": "c8c9a367df5d", "channel": 0},
+    {"name": "oliveira",    "label": "Oliveira",      "device": "4c7525341b1f", "channel": 0},
+    {"name": "lavandaria",  "label": "Lavandaria",    "device": "3494546b963c", "channel": 0},
+    {"name": "salamandra",  "label": "Salamandra",    "device": "c8c9a367e0f9", "channel": 0},
+    {"name": "sala_estar",  "label": "Sala de estar", "device": "c8c9a367de4d", "channel": 0},
+    {"name": "sala_jantar", "label": "Sala de jantar","device": "c8c9a379faf8", "channel": 0},
+    {"name": "cozinha",     "label": "Cozinha",       "device": "3494546bc56d", "channel": 0},
 ]
 
 def http_get(url, timeout=20):
