@@ -1,14 +1,19 @@
 #!/usr/bin/env python3
 """
 Smart Irrigation Controller for Esposende, PT.
-Designed to run as a GitHub Actions cron job (no PC required).
+v2 — reads config from irrigation-dashboard repo, uses default-only durations
+     (no EXTENDED, no seasonal multipliers). Zone order: Norte > Oliveira > Cozinha > Entrada.
 
-Reads weather from Open-Meteo, decides irrigation strategy, executes
-sequentially via Shelly Cloud API, logs the run, and notifies Slack.
+Decisions:
+  - SKIP:    rain_48h > 5mm OR (forecast_prob > 70% AND rain_forecast > 3mm)
+  - REDUCED: rain_48h 2-5mm  -> water at 50% of default duration (channel 0 only;
+                                channel 1 hardware-locked at 15min)
+  - NORMAL:  default per-zone duration from config.json (1-25min each)
 
-Secrets expected in environment:
+Secrets (env):
   SHELLY_AUTH_KEY     - Shelly cloud auth_key
-  SLACK_WEBHOOK_URL   - Incoming webhook URL for DM (optional but recommended)
+  SLACK_WEBHOOK_URL   - Incoming webhook URL (optional)
+  CONFIG_URL          - URL to config.json (defaults to irrigation-dashboard main)
 """
 
 import os
@@ -27,19 +32,28 @@ SHELLY_BASE = "https://shelly-46-eu.shelly.cloud"
 AUTH_KEY = os.environ.get("SHELLY_AUTH_KEY", "").strip()
 SLACK_WEBHOOK = os.environ.get("SLACK_WEBHOOK_URL", "").strip()
 LOG_PATH = os.environ.get("IRRIGATION_LOG", "irrigation-log.json")
+CONFIG_URL = os.environ.get("CONFIG_URL",
+    "https://raw.githubusercontent.com/jafonsosantos/irrigation-dashboard/main/config.json")
 
+# New order: Norte -> Oliveira -> Cozinha -> Entrada (clockwise)
 ZONES = [
-    {"name": "oliveira", "device": "c8c9a379ff9d", "channel": 0, "use_timer": True},
-    {"name": "norte",    "device": "c8c9a379ff9d", "channel": 1, "use_timer": False},
-    {"name": "entrada",  "device": "c8c9a37a09c4", "channel": 0, "use_timer": True},
-    {"name": "cozinha",  "device": "c8c9a37a09c4", "channel": 1, "use_timer": False},
+    {"name": "norte",    "device": "c8c9a379ff9d", "channel": 1, "use_timer": False, "fixed": True},
+    {"name": "oliveira", "device": "c8c9a379ff9d", "channel": 0, "use_timer": True,  "fixed": False},
+    {"name": "cozinha",  "device": "c8c9a37a09c4", "channel": 1, "use_timer": False, "fixed": True},
+    {"name": "entrada",  "device": "c8c9a37a09c4", "channel": 0, "use_timer": True,  "fixed": False},
 ]
 
+# Defaults if config.json fetch fails
+DEFAULT_CONFIG = {
+    "start_time": "06:00",
+    "zones": {"norte": 15, "oliveira": 15, "cozinha": 15, "entrada": 15},
+}
+
 # -----------------------------------------------------------------------------
-# HTTP helpers (no external deps)
+# HTTP helpers
 # -----------------------------------------------------------------------------
 def http_get(url, timeout=20):
-    req = urllib.request.Request(url, headers={"User-Agent": "smart-irrigation/1.0"})
+    req = urllib.request.Request(url, headers={"User-Agent": "smart-irrigation/2.0"})
     with urllib.request.urlopen(req, timeout=timeout) as r:
         return json.loads(r.read().decode())
 
@@ -47,9 +61,32 @@ def http_post_form(url, data, timeout=20):
     body = urllib.parse.urlencode(data).encode()
     req = urllib.request.Request(url, data=body, method="POST",
                                   headers={"Content-Type": "application/x-www-form-urlencoded",
-                                           "User-Agent": "smart-irrigation/1.0"})
+                                           "User-Agent": "smart-irrigation/2.0"})
     with urllib.request.urlopen(req, timeout=timeout) as r:
         return json.loads(r.read().decode())
+
+# -----------------------------------------------------------------------------
+# Load config from dashboard repo
+# -----------------------------------------------------------------------------
+def load_config():
+    try:
+        cfg = http_get(CONFIG_URL)
+        # Sanity check + clamp
+        zones = cfg.get("zones", {})
+        for name in ("norte", "oliveira", "cozinha", "entrada"):
+            v = zones.get(name, 15)
+            try:
+                v = int(v)
+            except Exception:
+                v = 15
+            v = max(1, min(25, v))
+            zones[name] = v
+        cfg["zones"] = zones
+        cfg.setdefault("start_time", "06:00")
+        return cfg
+    except Exception as e:
+        print(f"WARN: could not load config ({e}) — using defaults")
+        return dict(DEFAULT_CONFIG)
 
 # -----------------------------------------------------------------------------
 # Weather + decision
@@ -61,15 +98,15 @@ def fetch_weather():
     return http_get(url)
 
 def decide(weather):
+    """Decision: SKIP, REDUCED, or NORMAL. NO EXTENDED. NO seasonal multipliers."""
     daily = weather["daily"]
     today_idx = daily["time"].index(datetime.date.today().isoformat())
 
-    rain_48h = sum(daily["precipitation_sum"][today_idx-2:today_idx])  # yesterday + day before
-    rain_forecast_12h = daily["precipitation_sum"][today_idx] * 0.5  # rough estimate of today's first half
+    rain_48h = sum(daily["precipitation_sum"][today_idx-2:today_idx])
+    rain_forecast_12h = (daily["precipitation_sum"][today_idx] or 0) * 0.5
     forecast_probability = daily["precipitation_probability_max"][today_idx] or 0
     et0_today = daily["et0_fao_evapotranspiration"][today_idx] or 0
 
-    # Count consecutive dry days looking back
     dry_days = 0
     for i in range(today_idx - 1, -1, -1):
         if (daily["precipitation_sum"][i] or 0) < 1:
@@ -77,37 +114,35 @@ def decide(weather):
         else:
             break
 
-    # Decision rules
     if rain_48h > 5 or (forecast_probability > 70 and rain_forecast_12h > 3):
-        decision = "SKIP"; ch0_timer = 0
+        decision = "SKIP"
+        factor = 0.0
     elif 2 <= rain_48h <= 5:
-        decision = "REDUCED"; ch0_timer = 450
-    elif dry_days >= 5 and et0_today > 4:
-        decision = "EXTENDED"; ch0_timer = 1350
+        decision = "REDUCED"
+        factor = 0.5
     else:
-        decision = "NORMAL"; ch0_timer = 900
-
-    # Seasonal adjustment (channel 0 only)
-    month = datetime.date.today().month
-    if decision != "SKIP":
-        if 6 <= month <= 9:
-            ch0_timer = int(ch0_timer * 1.3)
-        elif month in (12, 1, 2):
-            ch0_timer = int(ch0_timer * 0.7)
-
-    # Safety cap
-    ch0_timer = min(ch0_timer, 1500)
+        decision = "NORMAL"
+        factor = 1.0
 
     return {
         "decision": decision,
-        "ch0_timer": ch0_timer,
-        "ch1_duration": 900,  # device built-in auto-off
+        "factor": factor,
         "rain_48h": round(rain_48h, 2),
         "rain_forecast_12h": round(rain_forecast_12h, 2),
         "forecast_probability": int(forecast_probability),
         "dry_days": dry_days,
         "et0": round(et0_today, 2),
     }
+
+def zone_duration_sec(zone, config, factor):
+    """Return duration in seconds for a zone based on config + factor.
+    Channel 1 (fixed=True) zones always use 900s (hardware-locked auto-off).
+    Channel 0 zones use config.zones[name] * factor, clamped 60..1500 (=25min)."""
+    if zone["fixed"]:
+        return 900
+    base_min = config["zones"].get(zone["name"], 15)
+    sec = int(base_min * 60 * factor)
+    return max(60, min(sec, 1500))  # 1min..25min safety
 
 # -----------------------------------------------------------------------------
 # Shelly control
@@ -150,17 +185,17 @@ def turn_off_with_retry(device, channel, name, attempts=3):
         time.sleep(3)
     return False
 
-def run_zone(zone, ch0_timer):
+def run_zone(zone, dur_sec):
     name = zone["name"]
     device = zone["device"]
     channel = zone["channel"]
     use_timer = zone["use_timer"]
-    duration = ch0_timer if use_timer else 900
+    duration = dur_sec
 
     print(f"\n--- Zone: {name} (device {device} ch{channel}, {duration}s) ---")
     try:
         if use_timer:
-            shelly_on(device, channel, timer=ch0_timer)
+            shelly_on(device, channel, timer=duration)
         else:
             shelly_on(device, channel)
     except Exception as e:
@@ -174,14 +209,12 @@ def run_zone(zone, ch0_timer):
         print(f"  WARN: zone {name} did not turn on")
         return False
 
-    # Wait full duration
     time.sleep(duration)
 
-    # Turn off with retry (channel 1 should already auto-off, but verify)
     ok = turn_off_with_retry(device, channel, name)
     if not ok:
         print(f"  WARN: zone {name} could not be confirmed OFF")
-    time.sleep(10)  # pause before next zone
+    time.sleep(10)
     return ok
 
 # -----------------------------------------------------------------------------
@@ -221,7 +254,6 @@ def main():
         print("ERROR: SHELLY_AUTH_KEY not set", file=sys.stderr)
         sys.exit(1)
 
-    # Manual pause via dashboard — creates a paused.flag file in the repo
     if os.path.exists("paused.flag"):
         msg = "Irrigation PAUSED via dashboard (paused.flag present). Skipping run."
         print(msg)
@@ -234,36 +266,35 @@ def main():
             "zones_watered": [],
             "total_duration_min": 0,
         })
-        slack_notify("⏸️ Rega PAUSADA (manual via dashboard).")
+        slack_notify("Rega PAUSADA (manual via dashboard).")
         return
+
+    # Load user config (default durations per zone)
+    config = load_config()
+    print(f"Config loaded: zones={config['zones']} start_time={config.get('start_time')}")
 
     try:
         weather = fetch_weather()
         plan = decide(weather)
     except Exception as e:
         print(f"Weather fetch failed ({e}) — defaulting to NORMAL")
-        plan = {"decision": "NORMAL", "ch0_timer": 900, "ch1_duration": 900,
+        plan = {"decision": "NORMAL", "factor": 1.0,
                 "rain_48h": -1, "rain_forecast_12h": -1, "forecast_probability": -1,
                 "dry_days": -1, "et0": -1}
-        # apply seasonal
-        m = datetime.date.today().month
-        if 6 <= m <= 9: plan["ch0_timer"] = int(plan["ch0_timer"] * 1.3)
-        elif m in (12, 1, 2): plan["ch0_timer"] = int(plan["ch0_timer"] * 0.7)
 
-    print(f"Decision: {plan['decision']}")
+    print(f"Decision: {plan['decision']} (factor={plan['factor']})")
     print(f"  rain_48h={plan['rain_48h']}mm  forecast_12h={plan['rain_forecast_12h']}mm "
           f"prob={plan['forecast_probability']}%  dry_days={plan['dry_days']}  et0={plan['et0']}mm")
-    print(f"  ch0_timer={plan['ch0_timer']}s  ch1_duration={plan['ch1_duration']}s")
 
     zones_watered = []
     zones_detail = []
-    total_minutes = 0
+    total_minutes = 0.0
 
     if plan["decision"] != "SKIP":
         for zone in ZONES:
-            dur_sec = plan["ch0_timer"] if zone["use_timer"] else 900
+            dur_sec = zone_duration_sec(zone, config, plan["factor"])
             dur_min = round(dur_sec / 60.0, 1)
-            ok = run_zone(zone, plan["ch0_timer"])
+            ok = run_zone(zone, dur_sec)
             zones_watered.append(zone["name"])
             zones_detail.append({
                 "name": zone["name"],
@@ -273,7 +304,6 @@ def main():
             })
             total_minutes += dur_min
 
-    # Final safety check
     print("\n=== Final safety check ===")
     for device in {z["device"] for z in ZONES}:
         try:
@@ -287,7 +317,6 @@ def main():
         except Exception as e:
             print(f"  status error for {device}: {e}")
 
-    # Log
     now = datetime.datetime.now()
     entry = {
         "date": now.date().isoformat(),
@@ -302,18 +331,19 @@ def main():
         "zones_watered": zones_watered,
         "zones": zones_detail,
         "total_duration_min": round(total_minutes, 1),
+        "config_used": {"zones": config["zones"], "start_time": config.get("start_time")},
     }
     append_log(entry)
     print(f"\nLogged to {LOG_PATH}")
 
-    # Slack
     if plan["decision"] == "SKIP":
-        msg = f"⏭️ Rega SKIP — {plan['rain_48h']}mm nas últimas 48h."
+        msg = f"Rega SKIP - {plan['rain_48h']}mm nas ultimas 48h."
+    elif plan["decision"] == "REDUCED":
+        msg = (f"Rega REDUZIDA - {len(zones_watered)} zonas (~{round(total_minutes)}min total, "
+               f"meia rega - choveu {plan['rain_48h']}mm).")
     else:
-        ch0_min = plan["ch0_timer"] // 60
-        msg = (f"🌱 Rega: *{plan['decision']}* — 4 zonas concluídas "
-               f"(~{ch0_min}min ch0 / 15min ch1, total ~{round(total_minutes)}min). "
-               f"Chuva 48h: {plan['rain_48h']}mm · et0: {plan['et0']}mm · dias secos: {plan['dry_days']}.")
+        msg = (f"Rega NORMAL - {len(zones_watered)} zonas concluidas, total ~{round(total_minutes)}min. "
+               f"Chuva 48h: {plan['rain_48h']}mm.")
     slack_notify(msg)
     print(f"\nSlack: {msg}")
 
