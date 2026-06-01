@@ -1,0 +1,68 @@
+name: Smart Lighting
+
+on:
+  schedule:
+    # Evening: sunset trigger. Run hourly between 17:00 and 22:00 UTC (covers all year for Esposende sunset).
+    # The Python script calculates exact sunset and sleeps until then. Concurrency prevents overlap.
+    - cron: "0 19 * * *"
+    # Night off — weekdays (Sun-Thu in Lisbon = day_of_week 0-4)
+    # 01:00 Lisbon = 00:00 UTC (summer DST) or 01:00 UTC (winter). Use 00:00 UTC (covers DST).
+    # Cron day-of-week: 0=Sun, 1=Mon, ... 4=Thu
+    - cron: "0 0 * * 0,1,2,3,4"
+    # Night off — weekend (Fri 02:30 = 01:30 UTC summer; Sat 02:30 = 01:30 UTC summer)
+    # Cron: Saturday and Sunday at 01:30 UTC (since Lisbon time is +1 in summer)
+    - cron: "30 1 * * 6,0"
+    # Vacation tick — every hour from 19:00 to 01:00 UTC
+    - cron: "0 19-23 * * *"
+    - cron: "0 0 * * *"
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Lighting mode"
+        required: true
+        default: "evening"
+        type: choice
+        options:
+          - evening
+          - night_off
+          - vacation_tick
+
+permissions:
+  contents: read
+
+jobs:
+  lighting:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    concurrency:
+      group: lighting-${{ github.event.schedule }}
+      cancel-in-progress: false
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Determine mode from schedule
+        id: mode
+        run: |
+          if [ -n "${{ github.event.inputs.mode }}" ]; then
+            echo "mode=${{ github.event.inputs.mode }}" >> $GITHUB_OUTPUT
+          else
+            case "${{ github.event.schedule }}" in
+              "0 19 * * *")          echo "mode=evening" >> $GITHUB_OUTPUT ;;
+              "0 0 * * 0,1,2,3,4")    echo "mode=night_off" >> $GITHUB_OUTPUT ;;
+              "30 1 * * 6,0")         echo "mode=night_off" >> $GITHUB_OUTPUT ;;
+              "0 19-23 * * *")        echo "mode=vacation_tick" >> $GITHUB_OUTPUT ;;
+              "0 0 * * *")            echo "mode=vacation_tick" >> $GITHUB_OUTPUT ;;
+              *)                       echo "mode=evening" >> $GITHUB_OUTPUT ;;
+            esac
+          fi
+      - name: Run lighting
+        env:
+          SHELLY_AUTH_KEY: ${{ secrets.SHELLY_AUTH_KEY }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          CONFIG_URL: https://raw.githubusercontent.com/jafonsosantos/irrigation-dashboard/main/config.json
+          LIGHTING_MODE: ${{ steps.mode.outputs.mode }}
+        run: python lighting.py
