@@ -37,9 +37,9 @@ CONFIG_URL = os.environ.get("CONFIG_URL",
 
 # New order: Norte -> Oliveira -> Cozinha -> Entrada (clockwise)
 ZONES = [
-    {"name": "norte",    "device": "c8c9a379ff9d", "channel": 1, "use_timer": False, "fixed": True},
+    {"name": "norte",    "device": "c8c9a379ff9d", "channel": 1, "use_timer": False, "fixed": False},
     {"name": "oliveira", "device": "c8c9a379ff9d", "channel": 0, "use_timer": True,  "fixed": False},
-    {"name": "cozinha",  "device": "c8c9a37a09c4", "channel": 1, "use_timer": False, "fixed": True},
+    {"name": "cozinha",  "device": "c8c9a37a09c4", "channel": 1, "use_timer": False, "fixed": False},
     {"name": "entrada",  "device": "c8c9a37a09c4", "channel": 0, "use_timer": True,  "fixed": False},
 ]
 
@@ -348,4 +348,4 @@ def main():
     print(f"\nSlack: {msg}")
 
 if __name__ == "__main__":
-    main()
+    main(
