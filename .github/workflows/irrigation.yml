@@ -2,7 +2,7 @@ name: Smart Irrigation
 
 on:
   schedule:
-    - cron: "0 1 * * *"
+    - cron: "0 3 * * *"
   workflow_dispatch:
 
 permissions:
@@ -18,12 +18,10 @@ jobs:
     steps:
       - name: Checkout repo (for log persistence)
         uses: actions/checkout@v4
-
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-
       - name: Run irrigation
         env:
           SHELLY_AUTH_KEY: ${{ secrets.SHELLY_AUTH_KEY }}
@@ -31,7 +29,6 @@ jobs:
           IRRIGATION_LOG: irrigation-log.json
           CONFIG_URL: https://raw.githubusercontent.com/jafonsosantos/irrigation-dashboard/main/config.json
         run: python irrigation.py
-
       - name: Commit updated log
         if: always()
         run: |
