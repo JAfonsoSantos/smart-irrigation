@@ -29,6 +29,7 @@ jobs:
           SHELLY_AUTH_KEY: ${{ secrets.SHELLY_AUTH_KEY }}
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
           IRRIGATION_LOG: irrigation-log.json
+          CONFIG_URL: https://raw.githubusercontent.com/jafonsosantos/irrigation-dashboard/main/config.json
         run: python irrigation.py
 
       - name: Commit updated log
