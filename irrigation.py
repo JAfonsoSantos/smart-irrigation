@@ -269,6 +269,27 @@ def main():
         slack_notify("Rega PAUSADA (manual via dashboard).")
         return
 
+    # Idempotency: skip if today already has a successful (non-SKIP/PAUSED) log entry
+    today_iso = datetime.date.today().isoformat()
+    try:
+        with open(LOG_PATH) as f:
+            existing = json.load(f)
+        for e in existing:
+            if e.get("date") == today_iso and e.get("decision") not in ("PAUSED",):
+                # Already ran today (NORMAL/REDUCED/SKIP) — backup cron only
+                # Only skip if backup cron context AND a real watering happened today
+                if e.get("decision") in ("NORMAL", "REDUCED") and (e.get("zones_watered") or []):
+                    print(f"Already ran today ({e.get('time')}, decision={e.get('decision')}). Skipping backup run.")
+                    slack_notify(f"Rega backup SKIPPED - ja regou hoje as {e.get('time')}.")
+                    return
+                if e.get("decision") == "SKIP":
+                    print(f"Already SKIPPED today ({e.get('time')}). Not re-running.")
+                    return
+    except FileNotFoundError:
+        pass
+    except Exception as ex:
+        print(f"Could not check log for idempotency: {ex}")
+
     # Load user config (default durations per zone)
     config = load_config()
     print(f"Config loaded: zones={config['zones']} start_time={config.get('start_time')}")
