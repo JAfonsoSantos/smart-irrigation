@@ -269,26 +269,53 @@ def main():
         slack_notify("Rega PAUSADA (manual via dashboard).")
         return
 
-    # Idempotency: skip if today already has a successful (non-SKIP/PAUSED) log entry
+    # Idempotency check (DOUBLE GUARD): check both the log file AND GitHub Actions API.
+    # The log file can be stale if a previous run failed to push, so we also query the API
+    # which is the source of truth for "did a run happen today".
     today_iso = datetime.date.today().isoformat()
+    current_run_id = os.environ.get("GITHUB_RUN_ID", "")
+    # Guard A: check log file (fast path)
+    log_already_ran = False
     try:
         with open(LOG_PATH) as f:
             existing = json.load(f)
         for e in existing:
-            if e.get("date") == today_iso and e.get("decision") not in ("PAUSED",):
-                # Already ran today (NORMAL/REDUCED/SKIP) — backup cron only
-                # Only skip if backup cron context AND a real watering happened today
-                if e.get("decision") in ("NORMAL", "REDUCED") and (e.get("zones_watered") or []):
-                    print(f"Already ran today ({e.get('time')}, decision={e.get('decision')}). Skipping backup run.")
-                    slack_notify(f"Rega backup SKIPPED - ja regou hoje as {e.get('time')}.")
+            if e.get("date") == today_iso and e.get("decision") in ("NORMAL", "REDUCED") and (e.get("zones_watered") or []):
+                log_already_ran = True
+                print(f"LOG idempotency: already ran today ({e.get('time')}, {e.get('decision')})")
+                break
+            if e.get("date") == today_iso and e.get("decision") == "SKIP":
+                print(f"LOG idempotency: today SKIPPED ({e.get('time')})")
+                return
+    except (FileNotFoundError, Exception) as ex:
+        if not isinstance(ex, FileNotFoundError):
+            print(f"Log check error: {ex}")
+    # Guard B: check GitHub Actions API for any previous successful run of THIS workflow today
+    try:
+        gh_token = os.environ.get("GITHUB_TOKEN", "")
+        repo = os.environ.get("GITHUB_REPOSITORY", "")
+        if gh_token and repo:
+            url = f"https://api.github.com/repos/{repo}/actions/workflows/irrigation.yml/runs?per_page=20"
+            req = urllib.request.Request(url, headers={
+                "Authorization": f"Bearer {gh_token}",
+                "Accept": "application/vnd.github+json",
+                "User-Agent": "smart-irrigation/2.1"
+            })
+            with urllib.request.urlopen(req, timeout=15) as r:
+                runs = json.loads(r.read().decode()).get("workflow_runs", [])
+            for r in runs:
+                if r.get("id") == int(current_run_id or 0):
+                    continue  # skip self
+                started = r.get("run_started_at", "")
+                if started.startswith(today_iso) and r.get("status") in ("in_progress", "queued", "completed") and r.get("conclusion") in (None, "success"):
+                    print(f"API idempotency: run #{r.get('run_number')} ({r.get('status')}/{r.get('conclusion')}) already ran today at {started}")
+                    slack_notify(f"Rega SKIP - ja correu hoje (run #{r.get('run_number')}).")
                     return
-                if e.get("decision") == "SKIP":
-                    print(f"Already SKIPPED today ({e.get('time')}). Not re-running.")
-                    return
-    except FileNotFoundError:
-        pass
     except Exception as ex:
-        print(f"Could not check log for idempotency: {ex}")
+        print(f"API idempotency check error: {ex}")
+    if log_already_ran:
+        slack_notify(f"Rega SKIP - log indica que ja regou hoje.")
+        return
 
     # Load user config (default durations per zone)
     config = load_config()

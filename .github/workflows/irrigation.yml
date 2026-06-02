@@ -28,6 +28,9 @@ jobs:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
           IRRIGATION_LOG: irrigation-log.json
           CONFIG_URL: https://raw.githubusercontent.com/jafonsosantos/irrigation-dashboard/main/config.json
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
         run: python irrigation.py
       - name: Commit updated log
         if: always()
@@ -35,5 +38,12 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add irrigation-log.json 2>/dev/null || true
-          git diff --cached --quiet || git commit -m "log: $(date -u +%F)"
-          git push || true
+          if ! git diff --cached --quiet; then
+            git commit -m "log: $(date -u +%F)"
+            # Retry push with rebase if behind
+            for i in 1 2 3; do
+              git push && break
+              git pull --rebase origin main && git push && break
+              sleep 5
+            done
+          fi
