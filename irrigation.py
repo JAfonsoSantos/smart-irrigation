@@ -8,7 +8,7 @@ Decisions:
   - SKIP:    rain_48h > 5mm OR (forecast_prob > 70% AND rain_forecast > 3mm)
   - REDUCED: rain_48h 2-5mm  -> water at 50% of default duration (channel 0 only;
                                 channel 1 hardware-locked at 15min)
-  - NORMAL:  default per-zone duration from config.json (1-25min each)
+  - NORMAL:  default per-zone duration from config.json (1-20min each, hard cap)
 
 Secrets (env):
   SHELLY_AUTH_KEY     - Shelly cloud auth_key
@@ -79,7 +79,7 @@ def load_config():
                 v = int(v)
             except Exception:
                 v = 15
-            v = max(1, min(25, v))
+            v = max(1, min(20, v))
             zones[name] = v
         cfg["zones"] = zones
         cfg.setdefault("start_time", "06:00")
@@ -142,7 +142,7 @@ def zone_duration_sec(zone, config, factor):
         return 900
     base_min = config["zones"].get(zone["name"], 15)
     sec = int(base_min * 60 * factor)
-    return max(60, min(sec, 1500))  # 1min..25min safety
+    return max(60, min(sec, 1200))  # 1min..20min safety (teto de seguranca de hardware)
 
 # -----------------------------------------------------------------------------
 # Shelly control
@@ -194,10 +194,9 @@ def run_zone(zone, dur_sec):
 
     print(f"\n--- Zone: {name} (device {device} ch{channel}, {duration}s) ---")
     try:
-        if use_timer:
-            shelly_on(device, channel, timer=duration)
-        else:
-            shelly_on(device, channel)
+        # Failsafe: envia SEMPRE o timer de hardware (auto-off) nas 4 zonas, incluindo
+        # as que nao usavam timer, para o rele desligar sozinho se o script/rede falharem.
+        shelly_on(device, channel, timer=duration)
     except Exception as e:
         print(f"  ON error: {e}")
         return False
