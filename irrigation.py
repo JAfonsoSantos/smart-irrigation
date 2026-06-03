@@ -271,21 +271,39 @@ def main():
         slack_notify("Rega PAUSADA (manual via dashboard).")
         return
 
+    # Carregar config cedo (preciso do start_time para a janela horaria)
+    config = load_config()
+    print(f"Config loaded: zones={config['zones']} start_time={config.get('start_time')}")
+
     # Time-window guard: o cron do GitHub Actions e best-effort e atrasa-se HORAS.
-    # So deixa uma execucao AGENDADA regar na janela da madrugada (04:00-06:00 Lisboa).
-    # Execucoes manuais (workflow_dispatch) ignoram isto. Evita rega diurna acidental.
+    # A janela acompanha automaticamente a hora de inicio (config.start_time) + uma margem.
+    # margem configuravel em config.json ("cron_window_margin_min", por defeito 120 = 2h).
+    # Execucoes manuais (workflow_dispatch) ignoram isto. Evita rega fora de horas.
     if event == "schedule":
         try:
-            from zoneinfo import ZoneInfo
-            lis_hour = datetime.datetime.now(ZoneInfo("Europe/Lisbon")).hour
-            win_desc = "04:00-06:00 Lisboa"
+            margin_min = int(config.get("cron_window_margin_min", 120))
         except Exception:
-            lis_hour = (datetime.datetime.utcnow().hour + 1) % 24  # assume Lisboa = UTC+1 (DST)
-            win_desc = "03:00-05:00 UTC (~04:00-06:00 Lisboa)"
-        if not (4 <= lis_hour < 6):
+            margin_min = 120
+        try:
+            from zoneinfo import ZoneInfo
+            now_lis = datetime.datetime.now(ZoneInfo("Europe/Lisbon"))
+        except Exception:
+            now_lis = datetime.datetime.utcnow() + datetime.timedelta(hours=1)  # assume DST +1
+        try:
+            sh, sm = [int(x) for x in str(config.get("start_time", "04:00")).split(":")[:2]]
+        except Exception:
+            sh, sm = 4, 0
+        start_min = sh * 60 + sm
+        now_min = now_lis.hour * 60 + now_lis.minute
+        lo = start_min - 10          # tolerancia de 10 min antes (skew)
+        hi = start_min + margin_min  # margem para o atraso do GitHub
+        in_window = (lo <= now_min <= hi) or (lo <= now_min + 1440 <= hi)  # trata passagem da meia-noite
+        if not in_window:
+            hi_h, hi_m = (hi // 60) % 24, hi % 60
+            win_desc = f"{sh:02d}:{sm:02d}-{hi_h:02d}:{hi_m:02d} Lisboa (inicio +{margin_min}min)"
             now = datetime.datetime.now()
-            msg = (f"Rega SALTADA - fora da janela ({win_desc}). O cron do GitHub disparou as "
-                   f"{lis_hour}h (Lisboa). Nao regou para evitar rega diurna.")
+            msg = (f"Rega SALTADA - fora da janela ({win_desc}). Cron disparou as "
+                   f"{now_lis.hour:02d}:{now_lis.minute:02d} (Lisboa). Nao regou para evitar rega fora de horas.")
             print(msg)
             append_log({
                 "date": now.date().isoformat(),
@@ -345,10 +363,6 @@ def main():
     if log_already_ran:
         slack_notify(f"Rega SKIP - log indica que ja regou hoje.")
         return
-
-    # Load user config (default durations per zone)
-    config = load_config()
-    print(f"Config loaded: zones={config['zones']} start_time={config.get('start_time')}")
 
     try:
         weather = fetch_weather()
