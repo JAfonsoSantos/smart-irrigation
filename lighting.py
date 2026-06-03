@@ -126,28 +126,35 @@ def slack_notify(text):
     except Exception as e:
         print(f"Slack error: {e}")
 
-def mode_evening(cfg):
-    """Calculate sunset, sleep until (sunset + offset), then turn ON enabled zones."""
+def lisbon_now():
     try:
-        sunset = fetch_sunset_today()
-    except Exception as e:
-        print(f"sunset fetch failed: {e} — using 20:00 fallback")
-        sunset = datetime.datetime.combine(datetime.date.today(), datetime.time(20, 0))
+        from zoneinfo import ZoneInfo
+        return datetime.datetime.now(ZoneInfo("Europe/Lisbon")).replace(tzinfo=None)
+    except Exception:
+        return datetime.datetime.utcnow() + datetime.timedelta(hours=1)
 
+def mode_evening(cfg):
+    """Acende as zonas se ja for pos-por-do-sol. Idempotente, SEM sleep longo, em hora de Lisboa.
+    Age so na janela [por-do-sol+offset, +2h]; pensado para disparos frequentes (cron + gatilho externo).
+    Corrige: comparava por-do-sol (hora de Lisboa) com now() do runner (UTC) e dormia ~2h ate expirar o job."""
+    try:
+        sunset = fetch_sunset_today()            # naive, hora de Lisboa
+    except Exception as e:
+        print(f"sunset fetch failed: {e} - fallback 21:00")
+        sunset = datetime.datetime.combine(datetime.date.today(), datetime.time(21, 0))
     offset_min = int(cfg.get("sunset_offset_min", 0))
     trigger = sunset + datetime.timedelta(minutes=offset_min)
-    now = datetime.datetime.now()
-    wait = (trigger - now).total_seconds()
-    print(f"Sunset: {sunset} | Trigger: {trigger} | Wait: {wait:.0f}s")
-
-    if wait > 0:
-        if wait > 4 * 3600:
-            print("Wait > 4h, aborting (likely cron misconfig)")
-            return
-        time.sleep(wait)
-
+    now = lisbon_now()
+    window_end = trigger + datetime.timedelta(minutes=120)
+    print(f"Sunset: {sunset} | Trigger: {trigger} | Agora (Lisboa): {now}")
+    if now < trigger:
+        print("Ainda nao e por-do-sol - nada a fazer (disparo cedo).")
+        return
+    if now > window_end:
+        print("Fora da janela (>2h apos por-do-sol) - nada a fazer.")
+        return
     enabled = [z for z in LIGHT_ZONES if cfg["zones"].get(z["name"], {}).get("enabled", True)]
-    print(f"Turning ON {len(enabled)} zones...")
+    print(f"Pos-por-do-sol - a garantir ON em {len(enabled)} zonas...")
     on_count = 0
     for zone in enabled:
         if turn_zone(zone, True):

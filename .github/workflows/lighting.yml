@@ -54,7 +54,7 @@ jobs:
               "0 19 * * *")          echo "mode=evening" >> $GITHUB_OUTPUT ;;
               "0 0 * * 0,1,2,3,4")    echo "mode=night_off" >> $GITHUB_OUTPUT ;;
               "30 1 * * 6,0")         echo "mode=night_off" >> $GITHUB_OUTPUT ;;
-              "0 19-23 * * *")        echo "mode=vacation_tick" >> $GITHUB_OUTPUT ;;
+              "0 19-23 * * *")        echo "mode=evening" >> $GITHUB_OUTPUT ;;
               "0 0 * * *")            echo "mode=vacation_tick" >> $GITHUB_OUTPUT ;;
               *)                       echo "mode=evening" >> $GITHUB_OUTPUT ;;
             esac
