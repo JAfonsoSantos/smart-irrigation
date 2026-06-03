@@ -245,6 +245,50 @@ def slack_notify(text):
     except Exception as e:
         print(f"Slack notify error: {e}")
 
+def email_notify(subject, body):
+    """Envia email se as variaveis SMTP_* estiverem definidas (via GitHub Secrets)."""
+    host = os.environ.get("SMTP_HOST", "").strip()
+    user = os.environ.get("SMTP_USER", "").strip()
+    pw   = os.environ.get("SMTP_PASS", "").strip()
+    to   = os.environ.get("EMAIL_TO", "").strip() or user
+    try:
+        port = int(os.environ.get("SMTP_PORT", "587") or "587")
+    except Exception:
+        port = 587
+    if not (host and user and pw and to):
+        print("(no SMTP_* env set, skipping email)")
+        return
+    try:
+        import smtplib
+        from email.mime.text import MIMEText
+        m = MIMEText(body, "plain", "utf-8")
+        m["Subject"] = subject
+        m["From"] = user
+        m["To"] = to
+        with smtplib.SMTP(host, port, timeout=20) as srv:
+            srv.starttls()
+            srv.login(user, pw)
+            srv.sendmail(user, [to], m.as_string())
+        print(f"Email sent to {to}")
+    except Exception as e:
+        print(f"Email notify error: {e}")
+
+def lisbon_now():
+    try:
+        from zoneinfo import ZoneInfo
+        return datetime.datetime.now(ZoneInfo("Europe/Lisbon"))
+    except Exception:
+        return datetime.datetime.utcnow() + datetime.timedelta(hours=1)
+
+def notify(text, subject=None):
+    """Notifica via Slack (se configurado) E email (se configurado)."""
+    slack_notify(text)
+    if subject is None:
+        t = text.lower()
+        sem = any(k in t for k in ("saltada", "skip", "pausada", "fora da janela"))
+        subject = "Rega Esposende - sem rega" if sem else "Rega Esposende - regou"
+    email_notify(subject, text)
+
 # -----------------------------------------------------------------------------
 # Main
 # -----------------------------------------------------------------------------
@@ -254,7 +298,10 @@ def main():
         sys.exit(1)
 
     event = os.environ.get("GITHUB_EVENT_NAME", "")
-    is_manual = (event == "workflow_dispatch")  # "Disparar run ja" ignora janela + idempotencia
+    dispatch_reason = os.environ.get("DISPATCH_REASON", "").strip()
+    # Manual = botao do dashboard (ignora janela+idempotencia). Gatilho externo manda
+    # inputs.reason="scheduler" e e tratado como agendado (com janela + idempotencia).
+    is_manual = (event == "workflow_dispatch" and dispatch_reason != "scheduler")
 
     if os.path.exists("paused.flag"):
         msg = "Irrigation PAUSED via dashboard (paused.flag present). Skipping run."
@@ -279,7 +326,7 @@ def main():
     # A janela acompanha automaticamente a hora de inicio (config.start_time) + uma margem.
     # margem configuravel em config.json ("cron_window_margin_min", por defeito 120 = 2h).
     # Execucoes manuais (workflow_dispatch) ignoram isto. Evita rega fora de horas.
-    if event == "schedule":
+    if not is_manual:
         try:
             margin_min = int(config.get("cron_window_margin_min", 120))
         except Exception:
@@ -427,16 +474,19 @@ def main():
     append_log(entry)
     print(f"\nLogged to {LOG_PATH}")
 
+    hora = lisbon_now().strftime("%H:%M")
+    start = config.get("start_time", "04:00")
     if plan["decision"] == "SKIP":
-        msg = f"Rega SKIP - {plan['rain_48h']}mm nas ultimas 48h."
+        msg = (f"Rega SALTADA por chuva ({plan['rain_48h']}mm nas ultimas 48h). "
+               f"Proxima rega prevista: amanha as {start} (Lisboa).")
     elif plan["decision"] == "REDUCED":
-        msg = (f"Rega REDUZIDA - {len(zones_watered)} zonas (~{round(total_minutes)}min total, "
-               f"meia rega - choveu {plan['rain_48h']}mm).")
+        msg = (f"Rega REDUZIDA as {hora} (Lisboa) - {len(zones_watered)} zonas, ~{round(total_minutes)}min "
+               f"(meia rega; choveu {plan['rain_48h']}mm em 48h).")
     else:
-        msg = (f"Rega NORMAL - {len(zones_watered)} zonas concluidas, total ~{round(total_minutes)}min. "
+        msg = (f"Rega NORMAL as {hora} (Lisboa) - {len(zones_watered)} zonas, ~{round(total_minutes)}min. "
                f"Chuva 48h: {plan['rain_48h']}mm.")
-    slack_notify(msg)
-    print(f"\nSlack: {msg}")
+    notify(msg)
+    print(f"\nNotify: {msg}")
 
 if __name__ == "__main__":
     main()
