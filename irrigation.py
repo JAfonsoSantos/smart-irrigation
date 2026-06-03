@@ -253,6 +253,9 @@ def main():
         print("ERROR: SHELLY_AUTH_KEY not set", file=sys.stderr)
         sys.exit(1)
 
+    event = os.environ.get("GITHUB_EVENT_NAME", "")
+    is_manual = (event == "workflow_dispatch")  # "Disparar run ja" ignora janela + idempotencia
+
     if os.path.exists("paused.flag"):
         msg = "Irrigation PAUSED via dashboard (paused.flag present). Skipping run."
         print(msg)
@@ -268,6 +271,33 @@ def main():
         slack_notify("Rega PAUSADA (manual via dashboard).")
         return
 
+    # Time-window guard: o cron do GitHub Actions e best-effort e atrasa-se HORAS.
+    # So deixa uma execucao AGENDADA regar na janela da madrugada (04:00-06:00 Lisboa).
+    # Execucoes manuais (workflow_dispatch) ignoram isto. Evita rega diurna acidental.
+    if event == "schedule":
+        try:
+            from zoneinfo import ZoneInfo
+            lis_hour = datetime.datetime.now(ZoneInfo("Europe/Lisbon")).hour
+            win_desc = "04:00-06:00 Lisboa"
+        except Exception:
+            lis_hour = (datetime.datetime.utcnow().hour + 1) % 24  # assume Lisboa = UTC+1 (DST)
+            win_desc = "03:00-05:00 UTC (~04:00-06:00 Lisboa)"
+        if not (4 <= lis_hour < 6):
+            now = datetime.datetime.now()
+            msg = (f"Rega SALTADA - fora da janela ({win_desc}). O cron do GitHub disparou as "
+                   f"{lis_hour}h (Lisboa). Nao regou para evitar rega diurna.")
+            print(msg)
+            append_log({
+                "date": now.date().isoformat(),
+                "time": now.strftime("%H:%M"),
+                "decision": "SKIP",
+                "reason": f"fora da janela de rega ({win_desc}) - cron atrasado pelo GitHub Actions",
+                "zones_watered": [],
+                "total_duration_min": 0,
+            })
+            slack_notify(msg)
+            return
+
     # Idempotency check (DOUBLE GUARD): check both the log file AND GitHub Actions API.
     # The log file can be stale if a previous run failed to push, so we also query the API
     # which is the source of truth for "did a run happen today".
@@ -279,11 +309,11 @@ def main():
         with open(LOG_PATH) as f:
             existing = json.load(f)
         for e in existing:
-            if e.get("date") == today_iso and e.get("decision") in ("NORMAL", "REDUCED") and (e.get("zones_watered") or []):
+            if e.get("date") == today_iso and e.get("decision") in ("NORMAL", "REDUCED") and (e.get("zones_watered") or []) and not is_manual:
                 log_already_ran = True
                 print(f"LOG idempotency: already ran today ({e.get('time')}, {e.get('decision')})")
                 break
-            if e.get("date") == today_iso and e.get("decision") == "SKIP":
+            if e.get("date") == today_iso and e.get("decision") == "SKIP" and not is_manual:
                 print(f"LOG idempotency: today SKIPPED ({e.get('time')})")
                 return
     except (FileNotFoundError, Exception) as ex:
@@ -293,7 +323,7 @@ def main():
     try:
         gh_token = os.environ.get("GITHUB_TOKEN", "")
         repo = os.environ.get("GITHUB_REPOSITORY", "")
-        if gh_token and repo:
+        if gh_token and repo and not is_manual:
             url = f"https://api.github.com/repos/{repo}/actions/workflows/irrigation.yml/runs?per_page=20"
             req = urllib.request.Request(url, headers={
                 "Authorization": f"Bearer {gh_token}",
