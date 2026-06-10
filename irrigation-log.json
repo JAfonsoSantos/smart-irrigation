@@ -454,5 +454,13 @@
     "reason": "fora da janela de rega (04:00-06:00 Lisboa (inicio +120min)) - cron atrasado pelo GitHub Actions",
     "zones_watered": [],
     "total_duration_min": 0
+  },
+  {
+    "date": "2026-06-10",
+    "time": "07:13",
+    "decision": "SKIP",
+    "reason": "fora da janela de rega (04:00-06:00 Lisboa (inicio +120min)) - cron atrasado pelo GitHub Actions",
+    "zones_watered": [],
+    "total_duration_min": 0
   }
 ]
