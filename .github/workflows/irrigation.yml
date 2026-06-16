@@ -3,8 +3,12 @@ name: Smart Irrigation
 on:
   schedule:
     - cron: "0 3 * * *"
-    - cron: "0 19 * * *"
   workflow_dispatch:
+    inputs:
+      reason:
+        description: "Origem do disparo (manual / scheduler)"
+        required: false
+        default: "manual"
 
 permissions:
   contents: write
@@ -29,6 +33,16 @@ jobs:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
           IRRIGATION_LOG: irrigation-log.json
           CONFIG_URL: https://raw.githubusercontent.com/jafonsosantos/irrigation-dashboard/main/config.json
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          DISPATCH_REASON: ${{ github.event.inputs.reason }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          EMAIL_TO: ${{ secrets.EMAIL_TO }}
         run: python irrigation.py
       - name: Commit updated log
         if: always()
@@ -36,5 +50,11 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add irrigation-log.json 2>/dev/null || true
-          git diff --cached --quiet || git commit -m "log: $(date -u +%F)"
-          git push || true
+          if ! git diff --cached --quiet; then
+            git commit -m "log: $(date -u +%F)"
+            for i in 1 2 3; do
+              git push && break
+              git pull --rebase origin main && git push && break
+              sleep 5
+            done
+          fi
