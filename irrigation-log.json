@@ -823,5 +823,58 @@
       },
       "start_time": "04:00"
     }
+  },
+  {
+    "date": "2026-06-21",
+    "time": "03:38",
+    "utc_time": "03:38",
+    "decision": "NORMAL",
+    "rain_48h_mm": 0.0,
+    "forecast_12h_mm": 0.0,
+    "forecast_prob_pct": 3,
+    "dry_days": 7,
+    "et0_mm": 4.68,
+    "zones_watered": [
+      "norte",
+      "oliveira",
+      "cozinha",
+      "entrada"
+    ],
+    "zones": [
+      {
+        "name": "norte",
+        "channel": 1,
+        "duration_min": 8.0,
+        "completed": true
+      },
+      {
+        "name": "oliveira",
+        "channel": 0,
+        "duration_min": 10.0,
+        "completed": true
+      },
+      {
+        "name": "cozinha",
+        "channel": 1,
+        "duration_min": 8.0,
+        "completed": true
+      },
+      {
+        "name": "entrada",
+        "channel": 0,
+        "duration_min": 10.0,
+        "completed": true
+      }
+    ],
+    "total_duration_min": 36.0,
+    "config_used": {
+      "zones": {
+        "norte": 8,
+        "oliveira": 10,
+        "cozinha": 8,
+        "entrada": 10
+      },
+      "start_time": "04:00"
+    }
   }
 ]
