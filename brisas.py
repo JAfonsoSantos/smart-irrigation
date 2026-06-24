@@ -99,9 +99,16 @@ def planned_time(spec, sunrise, sunset):
         return sunset + datetime.timedelta(minutes=offset)
     return None
 
+def lisbon_now():
+    try:
+        from zoneinfo import ZoneInfo
+        return datetime.datetime.now(ZoneInfo("Europe/Lisbon")).replace(tzinfo=None)
+    except Exception:
+        return datetime.datetime.utcnow() + datetime.timedelta(hours=1)
+
 def matches_now(target, window_min=7):
     if target is None: return False
-    now = datetime.datetime.now().replace(second=0, microsecond=0)
+    now = lisbon_now().replace(second=0, microsecond=0)
     delta = abs((target - now).total_seconds())
     return delta <= window_min * 60
 
@@ -122,7 +129,7 @@ def main():
         sunrise = datetime.datetime.combine(datetime.date.today(), datetime.time(7, 0))
         sunset = datetime.datetime.combine(datetime.date.today(), datetime.time(20, 0))
 
-    print(f"sunrise={sunrise.strftime('%H:%M')} sunset={sunset.strftime('%H:%M')}  now={datetime.datetime.now().strftime('%H:%M')}")
+    print(f"sunrise={sunrise.strftime('%H:%M')} sunset={sunset.strftime('%H:%M')}  now={lisbon_now().strftime('%H:%M')}")
 
     actions = []
     for zone in BRISA_ZONES:
