@@ -1035,5 +1035,28 @@
       },
       "start_time": "04:00"
     }
+  },
+  {
+    "date": "2026-06-25",
+    "time": "03:00",
+    "utc_time": "03:00",
+    "decision": "SKIP",
+    "rain_48h_mm": 0.0,
+    "forecast_12h_mm": 6.4,
+    "forecast_prob_pct": 93,
+    "dry_days": 7,
+    "et0_mm": 3.57,
+    "zones_watered": [],
+    "zones": [],
+    "total_duration_min": 0.0,
+    "config_used": {
+      "zones": {
+        "norte": 8,
+        "oliveira": 10,
+        "cozinha": 8,
+        "entrada": 10
+      },
+      "start_time": "04:00"
+    }
   }
 ]
