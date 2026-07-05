@@ -3,6 +3,7 @@
 Smart Roller Blinds (Brisas) Controller for Esposende, PT.
 Runs every 15min via cron. For each brisa, checks if it should open/close NOW (within +/-7min).
 Uses Shelly Cloud API v2 cover endpoint.
+Rest days (sabado, domingo e feriados nacionais PT): aberturas suspensas; fechos mantem-se.
 
 Config schema (per brisa):
   open:  { mode: "fixed"|"sunrise"|"disabled", time: "HH:MM", offset: minutes }
@@ -112,6 +113,33 @@ def matches_now(target, window_min=7):
     delta = abs((target - now).total_seconds())
     return delta <= window_min * 60
 
+
+def easter_sunday(year):
+    """Computus (Gregoriano) — domingo de Pascoa."""
+    a = year % 19; b = year // 100; c = year % 100
+    d = b // 4; e = b % 4; f = (b + 8) // 25
+    g = (b - f + 1) // 3; h = (19*a + b - d - g + 15) % 30
+    i = c // 4; k = c % 4
+    l = (32 + 2*e + 2*i - h - k) % 7
+    m = (a + 11*h + 22*l) // 451
+    month = (h + l - 7*m + 114) // 31
+    day = ((h + l - 7*m + 114) % 31) + 1
+    return datetime.date(year, month, day)
+
+def pt_holidays(year):
+    """Feriados nacionais PT (fixos + moveis)."""
+    fixed = [(1,1),(4,25),(5,1),(6,10),(8,15),(10,5),(11,1),(12,1),(12,8),(12,25)]
+    days = {datetime.date(year, m, d) for m, d in fixed}
+    easter = easter_sunday(year)
+    days.add(easter - datetime.timedelta(days=2))   # Sexta-feira Santa
+    days.add(easter)                                # Pascoa
+    days.add(easter + datetime.timedelta(days=60))  # Corpo de Deus
+    return days
+
+def is_rest_day(d):
+    """Sabado, domingo ou feriado nacional — nao abrir brisas (dia de descanso)."""
+    return d.weekday() >= 5 or d in pt_holidays(d.year)
+
 def main():
     if not AUTH_KEY:
         print("ERROR: SHELLY_AUTH_KEY not set", file=sys.stderr); sys.exit(1)
@@ -131,6 +159,10 @@ def main():
 
     print(f"sunrise={sunrise.strftime('%H:%M')} sunset={sunset.strftime('%H:%M')}  now={lisbon_now().strftime('%H:%M')}")
 
+    rest_day = is_rest_day(lisbon_now().date())
+    if rest_day:
+        print("Dia de descanso (sab/dom/feriado): aberturas suspensas; fechos mantem-se")
+
     actions = []
     for zone in BRISA_ZONES:
         bz = brisas_cfg["zones"].get(zone["name"], {})
@@ -139,7 +171,9 @@ def main():
         open_t = planned_time(bz.get("open", {}), sunrise, sunset)
         close_t = planned_time(bz.get("close", {}), sunrise, sunset)
 
-        if matches_now(open_t):
+        if matches_now(open_t) and rest_day:
+            print(f"  SKIP open {zone['name']} (fim de semana/feriado)")
+        elif matches_now(open_t):
             try:
                 cover_set(zone, "open")
                 actions.append(f"{zone['label']}: OPEN")
