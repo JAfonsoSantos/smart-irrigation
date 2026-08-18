@@ -1,50 +1,6 @@
 [
   {
     "date": "2026-05-29",
-    "time": "00:00",
-    "utc_time": "00:00",
-    "decision": "NORMAL",
-    "rain_48h_mm": 0.0,
-    "forecast_12h_mm": 0.0,
-    "forecast_prob_pct": 0,
-    "dry_days": 4,
-    "et0_mm": 3.83,
-    "zones_watered": [
-      "oliveira",
-      "norte",
-      "entrada",
-      "cozinha"
-    ],
-    "zones": [
-      {
-        "name": "oliveira",
-        "channel": 0,
-        "duration_min": 15.0,
-        "completed": false
-      },
-      {
-        "name": "norte",
-        "channel": 1,
-        "duration_min": 15.0,
-        "completed": false
-      },
-      {
-        "name": "entrada",
-        "channel": 0,
-        "duration_min": 15.0,
-        "completed": false
-      },
-      {
-        "name": "cozinha",
-        "channel": 1,
-        "duration_min": 15.0,
-        "completed": false
-      }
-    ],
-    "total_duration_min": 60.0
-  },
-  {
-    "date": "2026-05-29",
     "time": "00:04",
     "utc_time": "00:04",
     "decision": "NORMAL",
@@ -3688,6 +3644,59 @@
         "channel": 0,
         "duration_min": 10.0,
         "completed": true
+      }
+    ],
+    "total_duration_min": 36.0,
+    "config_used": {
+      "zones": {
+        "norte": 8,
+        "oliveira": 10,
+        "cozinha": 8,
+        "entrada": 10
+      },
+      "start_time": "04:00"
+    }
+  },
+  {
+    "date": "2026-08-18",
+    "time": "03:28",
+    "utc_time": "03:28",
+    "decision": "NORMAL",
+    "rain_48h_mm": 0.0,
+    "forecast_12h_mm": 0.0,
+    "forecast_prob_pct": 0,
+    "dry_days": 7,
+    "et0_mm": 4.76,
+    "zones_watered": [
+      "norte",
+      "oliveira",
+      "cozinha",
+      "entrada"
+    ],
+    "zones": [
+      {
+        "name": "norte",
+        "channel": 1,
+        "duration_min": 8.0,
+        "completed": true
+      },
+      {
+        "name": "oliveira",
+        "channel": 0,
+        "duration_min": 10.0,
+        "completed": false
+      },
+      {
+        "name": "cozinha",
+        "channel": 1,
+        "duration_min": 8.0,
+        "completed": false
+      },
+      {
+        "name": "entrada",
+        "channel": 0,
+        "duration_min": 10.0,
+        "completed": false
       }
     ],
     "total_duration_min": 36.0,
