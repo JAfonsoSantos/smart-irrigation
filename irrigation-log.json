@@ -1,13 +1,5 @@
 [
   {
-    "date": "2026-06-06",
-    "time": "06:34",
-    "decision": "SKIP",
-    "reason": "fora da janela de rega (04:00-06:00 Lisboa (inicio +120min)) - cron atrasado pelo GitHub Actions",
-    "zones_watered": [],
-    "total_duration_min": 0
-  },
-  {
     "date": "2026-06-07",
     "time": "07:09",
     "decision": "SKIP",
@@ -3703,5 +3695,13 @@
       },
       "start_time": "04:00"
     }
+  },
+  {
+    "date": "2026-08-27",
+    "time": "13:59",
+    "decision": "SKIP",
+    "reason": "fora da janela de rega (04:00-11:00 Lisboa (inicio +420min)) - cron atrasado pelo GitHub Actions",
+    "zones_watered": [],
+    "total_duration_min": 0
   }
 ]
