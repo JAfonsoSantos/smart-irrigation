@@ -8,14 +8,6 @@
     "total_duration_min": 0
   },
   {
-    "date": "2026-06-16",
-    "time": "11:53",
-    "decision": "SKIP",
-    "reason": "fora da janela de rega (04:00-11:00 Lisboa (inicio +420min)) - cron atrasado pelo GitHub Actions",
-    "zones_watered": [],
-    "total_duration_min": 0
-  },
-  {
     "date": "2026-06-17",
     "time": "03:28",
     "utc_time": "03:28",
@@ -4159,6 +4151,59 @@
     "zones_watered": [],
     "zones": [],
     "total_duration_min": 0.0,
+    "config_used": {
+      "zones": {
+        "norte": 8,
+        "oliveira": 10,
+        "cozinha": 8,
+        "entrada": 10
+      },
+      "start_time": "04:00"
+    }
+  },
+  {
+    "date": "2026-09-11",
+    "time": "03:01",
+    "utc_time": "03:01",
+    "decision": "NORMAL",
+    "rain_48h_mm": 0.0,
+    "forecast_12h_mm": 0.0,
+    "forecast_prob_pct": 0,
+    "dry_days": 2,
+    "et0_mm": 3.9,
+    "zones_watered": [
+      "norte",
+      "oliveira",
+      "cozinha",
+      "entrada"
+    ],
+    "zones": [
+      {
+        "name": "norte",
+        "channel": 1,
+        "duration_min": 8.0,
+        "completed": false
+      },
+      {
+        "name": "oliveira",
+        "channel": 0,
+        "duration_min": 10.0,
+        "completed": false
+      },
+      {
+        "name": "cozinha",
+        "channel": 1,
+        "duration_min": 8.0,
+        "completed": false
+      },
+      {
+        "name": "entrada",
+        "channel": 0,
+        "duration_min": 10.0,
+        "completed": false
+      }
+    ],
+    "total_duration_min": 36.0,
     "config_used": {
       "zones": {
         "norte": 8,
