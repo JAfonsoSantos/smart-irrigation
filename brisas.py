@@ -12,7 +12,7 @@ Config schema (per brisa):
 import os, sys, json, time, datetime, urllib.parse, urllib.request
 
 LAT, LON = 41.5463, -8.7882
-SHELLY_BASE = "https://shelly-46-eu.shelly.cloud"
+SHELLY_BASE = os.environ.get("SHELLY_BASE", "https://shelly-287-eu.shelly.cloud").rstrip("/")  # conta migrada de shelly-46-eu a 27/8/2026
 AUTH_KEY = os.environ.get("SHELLY_AUTH_KEY", "").strip()
 SLACK_WEBHOOK = os.environ.get("SLACK_WEBHOOK_URL", "").strip()
 CONFIG_URL = os.environ.get("CONFIG_URL",
