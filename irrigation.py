@@ -28,7 +28,7 @@ import urllib.request
 # Config
 # -----------------------------------------------------------------------------
 LAT, LON = 41.5463, -8.7882
-SHELLY_BASE = "https://shelly-46-eu.shelly.cloud"
+SHELLY_BASE = os.environ.get("SHELLY_BASE", "https://shelly-287-eu.shelly.cloud").rstrip("/")  # conta migrada de shelly-46-eu a 27/8/2026
 AUTH_KEY = os.environ.get("SHELLY_AUTH_KEY", "").strip()
 SLACK_WEBHOOK = os.environ.get("SLACK_WEBHOOK_URL", "").strip()
 LOG_PATH = os.environ.get("IRRIGATION_LOG", "irrigation-log.json")
