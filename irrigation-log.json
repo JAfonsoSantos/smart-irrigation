@@ -1,58 +1,5 @@
 [
   {
-    "date": "2026-07-04",
-    "time": "03:38",
-    "utc_time": "03:38",
-    "decision": "NORMAL",
-    "rain_48h_mm": -1,
-    "forecast_12h_mm": -1,
-    "forecast_prob_pct": -1,
-    "dry_days": -1,
-    "et0_mm": -1,
-    "zones_watered": [
-      "norte",
-      "oliveira",
-      "cozinha",
-      "entrada"
-    ],
-    "zones": [
-      {
-        "name": "norte",
-        "channel": 1,
-        "duration_min": 8.0,
-        "completed": true
-      },
-      {
-        "name": "oliveira",
-        "channel": 0,
-        "duration_min": 10.0,
-        "completed": true
-      },
-      {
-        "name": "cozinha",
-        "channel": 1,
-        "duration_min": 8.0,
-        "completed": true
-      },
-      {
-        "name": "entrada",
-        "channel": 0,
-        "duration_min": 10.0,
-        "completed": true
-      }
-    ],
-    "total_duration_min": 36.0,
-    "config_used": {
-      "zones": {
-        "norte": 8,
-        "oliveira": 10,
-        "cozinha": 8,
-        "entrada": 10
-      },
-      "start_time": "04:00"
-    }
-  },
-  {
     "date": "2026-07-05",
     "time": "03:28",
     "utc_time": "03:28",
@@ -4306,6 +4253,29 @@
     "forecast_prob_pct": 100,
     "dry_days": 7,
     "et0_mm": 1.6,
+    "zones_watered": [],
+    "zones": [],
+    "total_duration_min": 0.0,
+    "config_used": {
+      "zones": {
+        "norte": 8,
+        "oliveira": 10,
+        "cozinha": 8,
+        "entrada": 10
+      },
+      "start_time": "04:00"
+    }
+  },
+  {
+    "date": "2026-09-30",
+    "time": "03:00",
+    "utc_time": "03:00",
+    "decision": "SKIP",
+    "rain_48h_mm": 27.0,
+    "forecast_12h_mm": 0.2,
+    "forecast_prob_pct": 38,
+    "dry_days": 0,
+    "et0_mm": 2.21,
     "zones_watered": [],
     "zones": [],
     "total_duration_min": 0.0,
