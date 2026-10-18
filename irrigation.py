@@ -6,6 +6,9 @@ v2 — reads config from irrigation-dashboard repo, uses default-only durations
 
 Decisions:
   - SKIP:    rain_48h > 5mm OR (forecast_prob > 70% AND rain_forecast > 3mm)
+             OU solo ainda humido: et0 acumulado desde a ultima rega/chuva forte
+             < et0_threshold_mm (config.json, por defeito 8mm). Auto-sazonal:
+             em julho (et0 ~5mm/dia) rega ~diario; em outubro (~2mm/dia) cada 3-4 dias.
   - REDUCED: rain_48h 2-5mm  -> water at 50% of default duration (channel 0 only;
                                 channel 1 hardware-locked at 15min)
   - NORMAL:  default per-zone duration from config.json (1-20min each, hard cap)
@@ -97,8 +100,13 @@ def fetch_weather():
            "&hourly=precipitation&past_days=7&forecast_days=2&timezone=Europe/Lisbon")
     return http_get(url)
 
-def decide(weather):
-    """Decision: SKIP, REDUCED, or NORMAL. NO EXTENDED. NO seasonal multipliers."""
+def decide(weather, last_water_date=None, et0_threshold=8.0, reset_rain_mm=5.0):
+    """Decision: SKIP, REDUCED, or NORMAL. NO EXTENDED.
+    Regra sazonal automatica (out 2026): so rega quando o et0 acumulado desde a
+    ultima rega (last_water_date, vem do irrigation-log.json) ou desde a ultima
+    chuva forte (>= reset_rain_mm num dia) atinge et0_threshold. O et0 ja reflete
+    a estacao (verao ~5mm/dia, outono ~2mm/dia), por isso o intervalo entre regas
+    adapta-se sozinho ao longo do ano."""
     daily = weather["daily"]
     today_idx = daily["time"].index(datetime.date.today().isoformat())
 
@@ -114,9 +122,34 @@ def decide(weather):
         else:
             break
 
+    # et0 acumulado desde o ultimo "reset" (rega registada no log OU dia com
+    # chuva >= reset_rain_mm). Se a ultima rega for mais antiga que a janela de
+    # past_days do open-meteo, acumula a janela toda (garante que nunca fica
+    # semanas sem regar por falta de historico).
+    et0_accum = None
+    try:
+        start_i = 0
+        if last_water_date and last_water_date in daily["time"]:
+            start_i = daily["time"].index(last_water_date) + 1
+        for i in range(today_idx - 1, start_i - 1, -1):
+            if (daily["precipitation_sum"][i] or 0) >= reset_rain_mm:
+                start_i = i + 1
+                break
+        et0_accum = sum((daily["et0_fao_evapotranspiration"][i] or 0)
+                        for i in range(start_i, today_idx + 1))
+    except Exception as e:
+        print(f"  et0_accum calc error: {e}")
+        et0_accum = None
+
+    skip_reason = ""
     if rain_48h > 5 or (forecast_probability > 70 and rain_forecast_12h > 3):
         decision = "SKIP"
         factor = 0.0
+        skip_reason = "chuva"
+    elif et0_accum is not None and et0_accum < et0_threshold:
+        decision = "SKIP"
+        factor = 0.0
+        skip_reason = "solo"
     elif 2 <= rain_48h <= 5:
         decision = "REDUCED"
         factor = 0.5
@@ -127,11 +160,14 @@ def decide(weather):
     return {
         "decision": decision,
         "factor": factor,
+        "skip_reason": skip_reason,
         "rain_48h": round(rain_48h, 2),
         "rain_forecast_12h": round(rain_forecast_12h, 2),
         "forecast_probability": int(forecast_probability),
         "dry_days": dry_days,
         "et0": round(et0_today, 2),
+        "et0_accum": round(et0_accum, 2) if et0_accum is not None else None,
+        "et0_threshold": et0_threshold,
     }
 
 def zone_duration_sec(zone, config, factor):
@@ -411,18 +447,40 @@ def main():
         slack_notify(f"Rega SKIP - log indica que ja regou hoje.")
         return
 
+    # Ultima rega registada no log (para a regra do et0 acumulado)
+    last_water_date = None
+    try:
+        with open(LOG_PATH) as f:
+            for e in json.load(f):
+                if e.get("decision") in ("NORMAL", "REDUCED") and (e.get("zones_watered") or []):
+                    d = e.get("date")
+                    if d and (last_water_date is None or d > last_water_date):
+                        last_water_date = d
+    except Exception:
+        pass
+    try:
+        et0_threshold = max(3.0, min(20.0, float(config.get("et0_threshold_mm", 8))))
+    except Exception:
+        et0_threshold = 8.0
+    try:
+        reset_rain_mm = max(1.0, min(20.0, float(config.get("et0_reset_rain_mm", 5))))
+    except Exception:
+        reset_rain_mm = 5.0
+
     try:
         weather = fetch_weather()
-        plan = decide(weather)
+        plan = decide(weather, last_water_date, et0_threshold, reset_rain_mm)
     except Exception as e:
         print(f"Weather fetch failed ({e}) — defaulting to NORMAL")
-        plan = {"decision": "NORMAL", "factor": 1.0,
+        plan = {"decision": "NORMAL", "factor": 1.0, "skip_reason": "",
                 "rain_48h": -1, "rain_forecast_12h": -1, "forecast_probability": -1,
-                "dry_days": -1, "et0": -1}
+                "dry_days": -1, "et0": -1, "et0_accum": None, "et0_threshold": et0_threshold}
 
     print(f"Decision: {plan['decision']} (factor={plan['factor']})")
     print(f"  rain_48h={plan['rain_48h']}mm  forecast_12h={plan['rain_forecast_12h']}mm "
           f"prob={plan['forecast_probability']}%  dry_days={plan['dry_days']}  et0={plan['et0']}mm")
+    print(f"  et0_accum={plan.get('et0_accum')}mm / threshold={plan.get('et0_threshold')}mm "
+          f"(ultima rega: {last_water_date or 'desconhecida'})")
 
     zones_watered = []
     zones_detail = []
@@ -466,6 +524,9 @@ def main():
         "forecast_prob_pct": plan["forecast_probability"],
         "dry_days": plan["dry_days"],
         "et0_mm": plan["et0"],
+        "et0_accum_mm": plan.get("et0_accum"),
+        "et0_threshold_mm": plan.get("et0_threshold"),
+        "skip_reason": plan.get("skip_reason", ""),
         "zones_watered": zones_watered,
         "zones": zones_detail,
         "total_duration_min": round(total_minutes, 1),
@@ -476,7 +537,11 @@ def main():
 
     hora = lisbon_now().strftime("%H:%M")
     start = config.get("start_time", "04:00")
-    if plan["decision"] == "SKIP":
+    if plan["decision"] == "SKIP" and plan.get("skip_reason") == "solo":
+        msg = (f"Rega SALTADA - solo ainda com agua (et0 acumulado "
+               f"{plan.get('et0_accum')}mm de {plan.get('et0_threshold')}mm desde a ultima rega/chuva). "
+               f"Proxima avaliacao: amanha as {start} (Lisboa).")
+    elif plan["decision"] == "SKIP":
         msg = (f"Rega SALTADA por chuva ({plan['rain_48h']}mm nas ultimas 48h). "
                f"Proxima rega prevista: amanha as {start} (Lisboa).")
     elif plan["decision"] == "REDUCED":
