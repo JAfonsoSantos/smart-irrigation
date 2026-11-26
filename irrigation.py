@@ -110,7 +110,7 @@ def decide(weather, last_water_date=None, et0_threshold=8.0, reset_rain_mm=5.0):
     daily = weather["daily"]
     today_idx = daily["time"].index(datetime.date.today().isoformat())
 
-    rain_48h = sum(daily["precipitation_sum"][today_idx-2:today_idx])
+    rain_48h = sum((x or 0) for x in daily["precipitation_sum"][today_idx-2:today_idx])
     rain_forecast_12h = (daily["precipitation_sum"][today_idx] or 0) * 0.5
     forecast_probability = daily["precipitation_probability_max"][today_idx] or 0
     et0_today = daily["et0_fao_evapotranspiration"][today_idx] or 0
@@ -467,12 +467,23 @@ def main():
     except Exception:
         reset_rain_mm = 5.0
 
-    try:
-        weather = fetch_weather()
-        plan = decide(weather, last_water_date, et0_threshold, reset_rain_mm)
-    except Exception as e:
-        print(f"Weather fetch failed ({e}) — defaulting to NORMAL")
-        plan = {"decision": "NORMAL", "factor": 1.0, "skip_reason": "",
+    # FAIL-SAFE (nov 2026): sem dados meteo NAO rega. Antes caia em NORMAL e regou
+    # 5 dias em novembro no meio de ~460mm de chuva. Tenta 3x antes de desistir.
+    plan = None
+    last_err = None
+    for attempt in range(1, 4):
+        try:
+            weather = fetch_weather()
+            plan = decide(weather, last_water_date, et0_threshold, reset_rain_mm)
+            break
+        except Exception as e:
+            last_err = e
+            print(f"Weather/decision attempt {attempt} failed: {e}")
+            if attempt < 3:
+                time.sleep(30)
+    if plan is None:
+        print(f"Weather unavailable ({last_err}) — SKIP por seguranca (nao rega sem saber se choveu)")
+        plan = {"decision": "SKIP", "factor": 0.0, "skip_reason": "sem_meteo",
                 "rain_48h": -1, "rain_forecast_12h": -1, "forecast_probability": -1,
                 "dry_days": -1, "et0": -1, "et0_accum": None, "et0_threshold": et0_threshold}
 
@@ -541,6 +552,9 @@ def main():
         msg = (f"Rega SALTADA - solo ainda com agua (et0 acumulado "
                f"{plan.get('et0_accum')}mm de {plan.get('et0_threshold')}mm desde a ultima rega/chuva). "
                f"Proxima avaliacao: amanha as {start} (Lisboa).")
+    elif plan["decision"] == "SKIP" and plan.get("skip_reason") == "sem_meteo":
+        msg = (f"ATENCAO: Rega SALTADA por seguranca - nao consegui obter a meteorologia "
+               f"(open-meteo falhou 3x). Sem dados, o sistema nao rega. Proxima tentativa: amanha as {start}.")
     elif plan["decision"] == "SKIP":
         msg = (f"Rega SALTADA por chuva ({plan['rain_48h']}mm nas ultimas 48h). "
                f"Proxima rega prevista: amanha as {start} (Lisboa).")
