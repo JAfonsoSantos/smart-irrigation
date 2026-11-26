@@ -300,12 +300,13 @@ def email_notify(subject, body):
         m = MIMEText(body, "plain", "utf-8")
         m["Subject"] = subject
         m["From"] = user
-        m["To"] = to
+        rcpts = [a.strip() for a in to.replace(";", ",").split(",") if a.strip()]
+        m["To"] = ", ".join(rcpts)
         with smtplib.SMTP(host, port, timeout=20) as srv:
             srv.starttls()
             srv.login(user, pw)
-            srv.sendmail(user, [to], m.as_string())
-        print(f"Email sent to {to}")
+            srv.sendmail(user, rcpts, m.as_string())
+        print(f"Email sent to {', '.join(rcpts)}")
     except Exception as e:
         print(f"Email notify error: {e}")
 
@@ -319,10 +320,19 @@ def lisbon_now():
 def notify(text, subject=None):
     """Notifica via Slack (se configurado) E email (se configurado)."""
     slack_notify(text)
+    t = text.lower()
+    # Email so quando interessa (nov 2026): quando REGA ou quando ha ATENCAO/falha.
+    # Saltos de rotina (chuva, solo humido, cron atrasado, pausa) nao enviam email.
+    routine = any(k in t for k in ("saltada por chuva", "solo ainda", "fora da janela",
+                                   "ja correu", "ja regou", "paused", "pausada"))
+    if routine and "atencao" not in t:
+        print("(skip de rotina - sem email)")
+        return
     if subject is None:
-        t = text.lower()
-        sem = any(k in t for k in ("saltada", "skip", "pausada", "fora da janela"))
-        subject = "Rega Esposende - sem rega" if sem else "Rega Esposende - regou"
+        if "atencao" in t or "warn" in t or "falh" in t:
+            subject = "Rega Esposende - ATENCAO"
+        else:
+            subject = "Rega Esposende - regou"
     email_notify(subject, text)
 
 # -----------------------------------------------------------------------------
@@ -564,6 +574,10 @@ def main():
     else:
         msg = (f"Rega NORMAL as {hora} (Lisboa) - {len(zones_watered)} zonas, ~{round(total_minutes)}min. "
                f"Chuva 48h: {plan['rain_48h']}mm.")
+    failed = [z["name"] for z in zones_detail if not z.get("completed")]
+    if failed:
+        msg = (f"ATENCAO: {len(failed)} zona(s) nao confirmaram ligar/desligar: {', '.join(failed)}. "
+               f"Verificar Shelly (offline? servidor mudou?). | " + msg)
     notify(msg)
     print(f"\nNotify: {msg}")
 
