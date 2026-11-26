@@ -336,6 +336,93 @@ def notify(text, subject=None):
     email_notify(subject, text)
 
 # -----------------------------------------------------------------------------
+# Email diario (nov 2026): "HOJE REGOU" / "HOJE NAO REGOU" + motivo + dados
+# -----------------------------------------------------------------------------
+LITROS_POR_MIN = 43.0   # estimado da fatura set->out 2026 (22 m3 em 512 min de rega)
+EURO_POR_M3 = 2.92      # custo marginal Esposende Ambiente (agua 2o escalao+saneamento+residuos+taxas)
+DASHBOARD_URL = "https://jafonsosantos.github.io/irrigation-dashboard/"
+
+def _fmt(v, unit=""):
+    if v is None or v == -1:
+        return "sem dados"
+    return f"{v}{unit}"
+
+def build_daily_email(plan, zones_detail, total_minutes, start, teste=False):
+    regou = plan["decision"] in ("NORMAL", "REDUCED") and any(z.get("completed") for z in zones_detail)
+    subject = "HOJE REGOU" if regou else "HOJE NAO REGOU"
+    hoje = lisbon_now().strftime("%d/%m/%Y %H:%M")
+    reason = plan.get("skip_reason", "")
+    if plan["decision"] == "PAUSED":
+        motivo = "Rega em PAUSA (botao Pausar no dashboard). Nenhuma zona foi ligada."
+    elif plan["decision"] == "SKIP" and reason == "sem_meteo":
+        motivo = ("ATENCAO: nao foi possivel obter a meteorologia (5 tentativas em 5 min falharam). "
+                  "Por seguranca, sem dados o sistema NAO rega.")
+    elif plan["decision"] == "SKIP" and reason == "solo":
+        motivo = (f"Solo ainda com agua: evaporacao acumulada desde a ultima rega/chuva = "
+                  f"{_fmt(plan.get('et0_accum'), ' mm')}, abaixo do limite de {_fmt(plan.get('et0_threshold'), ' mm')}.")
+    elif plan["decision"] == "SKIP":
+        if isinstance(plan.get("rain_48h"), (int, float)) and plan["rain_48h"] > 5:
+            motivo = f"Choveu {_fmt(plan['rain_48h'], ' mm')} nas ultimas 48h (rega so abaixo de 5 mm)."
+        else:
+            motivo = (f"Chuva forte prevista para hoje: {_fmt(plan['rain_forecast_12h'], ' mm')} "
+                      f"com {_fmt(plan['forecast_probability'], '%')} de probabilidade.")
+    elif plan["decision"] == "REDUCED":
+        motivo = f"Chuva fraca nas ultimas 48h ({_fmt(plan['rain_48h'], ' mm')}): meia rega."
+    else:
+        motivo = (f"Tempo seco: {_fmt(plan['rain_48h'], ' mm')} de chuva em 48h, "
+                  f"{_fmt(plan.get('dry_days'))} dias sem chuva, solo precisa de agua.")
+    falhas = [z["name"] for z in zones_detail if not z.get("completed")]
+    if plan["decision"] in ("NORMAL", "REDUCED") and falhas:
+        motivo = (f"ATENCAO: {len(falhas)} zona(s) nao confirmaram ligar/desligar ({', '.join(falhas)}). "
+                  f"Verificar Shelly. | " + motivo)
+
+    linhas = []
+    if teste:
+        linhas += ["*** EMAIL DE TESTE - nenhuma zona foi ligada ***", ""]
+    linhas += [f"{subject} - {hoje}", "", f"MOTIVO: {motivo}", "", "DADOS METEO (Esposende, open-meteo):",
+               f"- Chuva ultimas 48h: {_fmt(plan['rain_48h'], ' mm')}",
+               f"- Chuva prevista hoje (12h): {_fmt(plan['rain_forecast_12h'], ' mm')}",
+               f"- Probabilidade de chuva hoje: {_fmt(plan['forecast_probability'], '%')}",
+               f"- Dias seguidos sem chuva: {_fmt(plan.get('dry_days'))}",
+               f"- Evaporacao (ET0) hoje: {_fmt(plan.get('et0'), ' mm')}",
+               f"- ET0 acumulada desde ultima rega/chuva: {_fmt(plan.get('et0_accum'), ' mm')} "
+               f"(rega a partir de {_fmt(plan.get('et0_threshold'), ' mm')})", ""]
+    if zones_detail:
+        linhas.append("ZONAS:")
+        for z in zones_detail:
+            ok = "OK" if z.get("completed") else "FALHOU"
+            linhas.append(f"- {z['name'].capitalize()}: {z['duration_min']} min [{ok}]")
+        litros = round(total_minutes * LITROS_POR_MIN)
+        linhas += [f"Total: {round(total_minutes)} min | ~{litros} litros | ~{round(litros/1000*EURO_POR_M3, 2)} EUR (estimativa)", ""]
+    else:
+        linhas += ["ZONAS: nenhuma ligada | 0 litros | 0 EUR", ""]
+    linhas += [f"Proxima avaliacao: amanha as {start} (Lisboa).", f"Dashboard: {DASHBOARD_URL}"]
+    return subject, "\n".join(linhas)
+
+def send_test_emails(config):
+    """Disparo manual com reason=teste_email: envia os 2 formatos com dados reais de hoje, sem ligar zonas."""
+    start = config.get("start_time", "04:00")
+    try:
+        plan = decide(fetch_weather(), None)
+    except Exception as e:
+        print(f"meteo falhou no teste: {e}")
+        plan = {"decision": "SKIP", "factor": 0.0, "skip_reason": "sem_meteo", "rain_48h": -1,
+                "rain_forecast_12h": -1, "forecast_probability": -1, "dry_days": -1, "et0": -1,
+                "et0_accum": None, "et0_threshold": 8.0}
+    fake = [{"name": z["name"], "channel": z["channel"],
+             "duration_min": float(config["zones"].get(z["name"], 10)), "completed": True} for z in ZONES]
+    # exemplo REGOU com dados de um dia seco real (14 out 2026), para o teste fazer sentido
+    regou_plan = {"decision": "NORMAL", "factor": 1.0, "skip_reason": "", "rain_48h": 0.0,
+                  "rain_forecast_12h": 0.0, "forecast_probability": 0, "dry_days": 7, "et0": 2.1,
+                  "et0_accum": 9.4, "et0_threshold": 8.0}
+    s1, b1 = build_daily_email(regou_plan, fake, sum(z["duration_min"] for z in fake), start, teste=True)
+    nao_plan = plan if plan["decision"] == "SKIP" else dict(plan, decision="SKIP", skip_reason="chuva")
+    s2, b2 = build_daily_email(nao_plan, [], 0, start, teste=True)
+    for s, b in ((s1, b1), (s2, b2)):
+        print(f"--- {s} ---\n{b}\n")
+        email_notify(s, b)
+
+# -----------------------------------------------------------------------------
 # Main
 # -----------------------------------------------------------------------------
 def main():
@@ -348,6 +435,10 @@ def main():
     # Manual = botao do dashboard (ignora janela+idempotencia). Gatilho externo manda
     # inputs.reason="scheduler" e e tratado como agendado (com janela + idempotencia).
     is_manual = (event == "workflow_dispatch" and dispatch_reason != "scheduler")
+
+    if dispatch_reason == "teste_email":
+        send_test_emails(load_config())
+        return
 
     if os.path.exists("paused.flag"):
         msg = "Irrigation PAUSED via dashboard (paused.flag present). Skipping run."
@@ -362,6 +453,15 @@ def main():
             "total_duration_min": 0,
         })
         slack_notify("Rega PAUSADA (manual via dashboard).")
+        if dispatch_reason == "scheduler":   # so o disparo das 04:00 manda email (evita duplicados)
+            try:
+                st = load_config().get("start_time", "04:00")
+            except Exception:
+                st = "04:00"
+            subj, body = build_daily_email({"decision": "PAUSED", "rain_48h": -1, "rain_forecast_12h": -1,
+                                            "forecast_probability": -1, "dry_days": -1, "et0": -1,
+                                            "et0_accum": None, "et0_threshold": None}, [], 0, st)
+            email_notify(subj, body)
         return
 
     # Carregar config cedo (preciso do start_time para a janela horaria)
@@ -478,10 +578,10 @@ def main():
         reset_rain_mm = 5.0
 
     # FAIL-SAFE (nov 2026): sem dados meteo NAO rega. Antes caia em NORMAL e regou
-    # 5 dias em novembro no meio de ~460mm de chuva. Tenta 3x antes de desistir.
+    # 5 dias em novembro no meio de ~460mm de chuva. Tenta 5x (1 min entre tentativas) antes de desistir.
     plan = None
     last_err = None
-    for attempt in range(1, 4):
+    for attempt in range(1, 6):
         try:
             weather = fetch_weather()
             plan = decide(weather, last_water_date, et0_threshold, reset_rain_mm)
@@ -489,8 +589,8 @@ def main():
         except Exception as e:
             last_err = e
             print(f"Weather/decision attempt {attempt} failed: {e}")
-            if attempt < 3:
-                time.sleep(30)
+            if attempt < 5:
+                time.sleep(60)  # open-meteo devolve 429 aos IPs partilhados do GitHub
     if plan is None:
         print(f"Weather unavailable ({last_err}) — SKIP por seguranca (nao rega sem saber se choveu)")
         plan = {"decision": "SKIP", "factor": 0.0, "skip_reason": "sem_meteo",
@@ -564,7 +664,7 @@ def main():
                f"Proxima avaliacao: amanha as {start} (Lisboa).")
     elif plan["decision"] == "SKIP" and plan.get("skip_reason") == "sem_meteo":
         msg = (f"ATENCAO: Rega SALTADA por seguranca - nao consegui obter a meteorologia "
-               f"(open-meteo falhou 3x). Sem dados, o sistema nao rega. Proxima tentativa: amanha as {start}.")
+               f"(open-meteo falhou 5x). Sem dados, o sistema nao rega. Proxima tentativa: amanha as {start}.")
     elif plan["decision"] == "SKIP":
         msg = (f"Rega SALTADA por chuva ({plan['rain_48h']}mm nas ultimas 48h). "
                f"Proxima rega prevista: amanha as {start} (Lisboa).")
@@ -578,8 +678,10 @@ def main():
     if failed:
         msg = (f"ATENCAO: {len(failed)} zona(s) nao confirmaram ligar/desligar: {', '.join(failed)}. "
                f"Verificar Shelly (offline? servidor mudou?). | " + msg)
-    notify(msg)
-    print(f"\nNotify: {msg}")
+    slack_notify(msg)
+    subj, body = build_daily_email(plan, zones_detail, total_minutes, start)
+    email_notify(subj, body)
+    print(f"\nNotify: {msg}\nEmail: {subj}\n{body}")
 
 if __name__ == "__main__":
     main()
