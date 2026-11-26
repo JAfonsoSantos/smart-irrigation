@@ -94,10 +94,14 @@ def load_config():
 # -----------------------------------------------------------------------------
 # Weather + decision
 # -----------------------------------------------------------------------------
+WINTER_MONTHS = (11, 12, 1, 2, 3)   # novembro a marco
+WINTER_MIN_DRY_DAYS = 7             # rega so com MAIS de 7 dias seguidos sem chuva
+WINTER_ZONE_MIN = 5                 # minutos por zona no inverno
+
 def fetch_weather():
     url = (f"https://api.open-meteo.com/v1/forecast?latitude={LAT}&longitude={LON}"
            "&daily=precipitation_sum,precipitation_probability_max,et0_fao_evapotranspiration"
-           "&hourly=precipitation&past_days=7&forecast_days=2&timezone=Europe/Lisbon")
+           "&hourly=precipitation&past_days=14&forecast_days=2&timezone=Europe/Lisbon")  # 14 dias: precisa de contar >7 dias secos
     return http_get(url)
 
 def decide(weather, last_water_date=None, et0_threshold=8.0, reset_rain_mm=5.0):
@@ -142,6 +146,26 @@ def decide(weather, last_water_date=None, et0_threshold=8.0, reset_rain_mm=5.0):
         et0_accum = None
 
     skip_reason = ""
+    # REGRA DE INVERNO (Catarina, 26/11/2026): Esposende e humido, o orvalho chega.
+    # Nov-Mar: nenhuma rega se choveu (>=1mm em 48h) ou se vai chover hoje;
+    # so rega com MAIS de 7 dias seguidos sem chuva, e so 5 min por zona.
+    if datetime.date.today().month in WINTER_MONTHS:
+        rain_today = daily["precipitation_sum"][today_idx] or 0
+        if rain_48h >= 1 or (rain_today >= 1 and forecast_probability >= 50):
+            decision, factor, skip_reason = "SKIP", 0.0, "chuva"
+        elif dry_days <= WINTER_MIN_DRY_DAYS:
+            decision, factor, skip_reason = "SKIP", 0.0, "inverno"
+        else:
+            decision, factor, skip_reason = "NORMAL", 1.0, "inverno_rega"
+        return {
+            "decision": decision, "factor": factor, "skip_reason": skip_reason,
+            "rain_48h": round(rain_48h, 2), "rain_forecast_12h": round(rain_forecast_12h, 2),
+            "forecast_probability": int(forecast_probability), "dry_days": dry_days,
+            "et0": round(et0_today, 2),
+            "et0_accum": round(et0_accum, 2) if et0_accum is not None else None,
+            "et0_threshold": et0_threshold,
+            "fixed_min": WINTER_ZONE_MIN if decision == "NORMAL" else None,
+        }
     if rain_48h > 5 or (forecast_probability > 70 and rain_forecast_12h > 3):
         decision = "SKIP"
         factor = 0.0
@@ -357,14 +381,23 @@ def build_daily_email(plan, zones_detail, total_minutes, start, teste=False):
     elif plan["decision"] == "SKIP" and reason == "sem_meteo":
         motivo = ("ATENCAO: nao foi possivel obter a meteorologia (5 tentativas em 5 min falharam). "
                   "Por seguranca, sem dados o sistema NAO rega.")
+    elif plan["decision"] == "SKIP" and reason == "inverno":
+        motivo = (f"Regra de inverno (nov-mar): so rega com mais de {WINTER_MIN_DRY_DAYS} dias seguidos sem chuva. "
+                  f"Hoje: {_fmt(plan.get('dry_days'))} dias sem chuva.")
+    elif plan["decision"] == "NORMAL" and reason == "inverno_rega":
+        motivo = (f"Regra de inverno: {_fmt(plan.get('dry_days'))} dias seguidos sem chuva (mais de "
+                  f"{WINTER_MIN_DRY_DAYS}) -> rega curta de {WINTER_ZONE_MIN} min por zona.")
     elif plan["decision"] == "SKIP" and reason == "solo":
         motivo = (f"Solo ainda com agua: evaporacao acumulada desde a ultima rega/chuva = "
                   f"{_fmt(plan.get('et0_accum'), ' mm')}, abaixo do limite de {_fmt(plan.get('et0_threshold'), ' mm')}.")
     elif plan["decision"] == "SKIP":
-        if isinstance(plan.get("rain_48h"), (int, float)) and plan["rain_48h"] > 5:
-            motivo = f"Choveu {_fmt(plan['rain_48h'], ' mm')} nas ultimas 48h (rega so abaixo de 5 mm)."
+        inverno = lisbon_now().month in WINTER_MONTHS
+        limite = 1 if inverno else 5
+        if isinstance(plan.get("rain_48h"), (int, float)) and plan["rain_48h"] >= limite:
+            motivo = (f"Choveu {_fmt(plan['rain_48h'], ' mm')} nas ultimas 48h "
+                      + ("(inverno: qualquer chuva >= 1 mm cancela a rega)." if inverno else "(rega so abaixo de 5 mm)."))
         else:
-            motivo = (f"Chuva forte prevista para hoje: {_fmt(plan['rain_forecast_12h'], ' mm')} "
+            motivo = (f"Chuva prevista para hoje: {_fmt(plan['rain_forecast_12h'], ' mm')} "
                       f"com {_fmt(plan['forecast_probability'], '%')} de probabilidade.")
     elif plan["decision"] == "REDUCED":
         motivo = f"Chuva fraca nas ultimas 48h ({_fmt(plan['rain_48h'], ' mm')}): meia rega."
@@ -609,7 +642,10 @@ def main():
 
     if plan["decision"] != "SKIP":
         for zone in ZONES:
-            dur_sec = zone_duration_sec(zone, config, plan["factor"])
+            if plan.get("fixed_min"):
+                dur_sec = int(plan["fixed_min"] * 60)   # regra de inverno: 5 min por zona
+            else:
+                dur_sec = zone_duration_sec(zone, config, plan["factor"])
             dur_min = round(dur_sec / 60.0, 1)
             ok = run_zone(zone, dur_sec)
             zones_watered.append(zone["name"])
@@ -662,6 +698,8 @@ def main():
         msg = (f"Rega SALTADA - solo ainda com agua (et0 acumulado "
                f"{plan.get('et0_accum')}mm de {plan.get('et0_threshold')}mm desde a ultima rega/chuva). "
                f"Proxima avaliacao: amanha as {start} (Lisboa).")
+    elif plan["decision"] == "SKIP" and plan.get("skip_reason") == "inverno":
+        msg = f"Rega SALTADA - regra de inverno ({plan.get('dry_days')} dias sem chuva, minimo >{WINTER_MIN_DRY_DAYS})."
     elif plan["decision"] == "SKIP" and plan.get("skip_reason") == "sem_meteo":
         msg = (f"ATENCAO: Rega SALTADA por seguranca - nao consegui obter a meteorologia "
                f"(open-meteo falhou 5x). Sem dados, o sistema nao rega. Proxima tentativa: amanha as {start}.")
